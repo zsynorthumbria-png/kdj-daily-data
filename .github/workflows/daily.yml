@@ -1,0 +1,53 @@
+name: 每日更新KDJ
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '30 9,10 * * *'
+permissions:
+  contents: read
+concurrency:
+  group: kdj-daily-pages
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      changed: ${{ steps.fetch.outputs.changed }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: actions/configure-pages@v5
+        id: pages
+      - name: 获取Tushare行情
+        id: fetch
+        env:
+          TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
+          PAGES_URL: ${{ steps.pages.outputs.base_url }}
+        run: node scripts/fetch.mjs
+      - name: 计算日周月KDJ
+        if: steps.fetch.outputs.changed == 'true'
+        run: node scripts/calculate.mjs
+      - name: 生成完整数据版本
+        if: steps.fetch.outputs.changed == 'true'
+        run: node scripts/publish.mjs
+      - uses: actions/upload-pages-artifact@v4
+        if: steps.fetch.outputs.changed == 'true'
+        with:
+          path: public
+          retention-days: 1
+  deploy:
+    needs: build
+    if: needs.build.outputs.changed == 'true'
+    permissions:
+      pages: write
+      id-token: write
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/deploy-pages@v4
+        id: deployment
